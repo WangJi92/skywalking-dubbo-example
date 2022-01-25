@@ -83,6 +83,72 @@ public class TraceIdPatternLogbackLayout extends PatternLayout {
 2022-01-25 19:17:07.009 [TID:de98a5b85f5e476ba249ed66edc06bd0.75.16431094270040001] [DubboServerHandler-30.11.176.38:12345-thread-3] INFO  c.e.test.provider.DemoServiceImpl -[19:17:07] Hello 123, request from consumer: /30.11.176.38:62365
 ```
 
+# 关于skywalking 采样率的探究
 
+## Trace Sampling at server side （服务端采样率）
 
+[https://skywalking.apache.org/docs/main/latest/en/setup/backend/trace-sampling/](https://skywalking.apache.org/docs/main/latest/en/setup/backend/trace-sampling/)
+
+默认为 100% ,这里修改为10%
+> 注意这里不同的版本配置地方不一样，有的在application.yml,新版本都在8.8以上 trace-sampling-policy-settings.yml
+
+配置文件地址： apache-skywalking-apm-bin/config/trace-sampling-policy-settings.yml 
+
+1000 = 10% ,也可以设置为0 服务端不进行采样，不存储
+
+![服务端采样配置](pic/Sampling-Server.png)
+
+```xml
+default:
+  # Default sampling rate that replaces the 'agent-analyzer.default.sampleRate'
+  # The sample rate precision is 1/10000. 10000 means 100% sample in default.
+  rate: 1000
+  # Default trace latency time that replaces the 'agent-analyzer.default.slowTraceSegmentThreshold'
+  # Setting this threshold about the latency would make the slow trace segments sampled if they cost more time, even the sampling mechanism activated. The default value is `-1`, which means would not sample slow traces. Unit, millisecond.
+  duration: -1
+#services:
+#  - name: serverName
+#    rate: 1000 # Sampling rate of this specific service
+#    duration: 10000 # Trace latency threshold for trace sampling for this specific service
+```
+
+### 并发访问1000次
+
+```bash
+ab -n 1000 -c 200  http://127.0.0.1:8081/sayHello\?name\=13446555
+```
+#### idea 所有日志
+![all client log ](pic/client-all.png)
+
+#### sky 管理界面搜索不到部分
+* 搜索不到  15c4638aa8254352b86838f41263c645.205.16430933407250007
+
+![not search](pic/not-search.png)
+  
+* 搜索到了 15c4638aa8254352b86838f41263c645.202.16430933407260007
+
+![can search](pic/can-search.png)
+
+证明了一个问题，服务端的采样有效了...  分页只有 14 页 1000的访问数据,这样也侧面证明了客户端tid 正常打印，服务端也没有存储所有的日志，
+极大的减少了占用大量存储空间，如果是需要日志里面打印traceId，sky 界面不需要搜索这样可以将rate 设置为0。
+
+![all-search](pic/all-search.png)
+
+## 客户端采样
+3 秒采样1个，默认配置为-1 就是不进行客户端采样过滤，全部都发送到服务端
+
+The number of sampled traces per 3 seconds, Negative or zero means off, by default  
+agent.sample_n_per_3_secs=${SW_AGENT_SAMPLE:1}
+
+[https://skywalking.apache.org/docs/skywalking-java/latest/en/setup/service-agent/java-agent/configurations/](https://skywalking.apache.org/docs/skywalking-java/latest/en/setup/service-agent/java-agent/configurations/)
+
+TID:Ignored_Trace 意味着被拒绝采样了..，日志里面打印的traceId 都被吃掉了，这个不是我们想要的效果，客户端的日志都需要出现traceId
+
+![reject-sample](pic/reject-client-sample.png)
+
+## 需求
+
+* 需求是不需要将所有的采样都进行存储,分布式跟踪系统的一个优点是可以从跟踪中获得详细的信息。但是，缺点是这些跟踪会占用大量存储空间。但是客户端的log日志里面可以搜索到 日志的traceId 进行串联起来，这样客户端的就不进行过滤，服务端过滤即可。有点类似tlog的功能 [https://tlog.yomahub.com/](https://tlog.yomahub.com/)
+
+* 这里客户端的日志需要配置logback layout [application-toolkit-logback-1.x/](https://skywalking.apache.org/docs/skywalking-java/latest/en/setup/service-agent/java-agent/application-toolkit-logback-1.x/) 即可享受traceId 的秘密
 
