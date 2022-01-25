@@ -8,6 +8,8 @@
 
 ```bash 
 cd apache-skywalking-apm-bin/bin
+
+# startup.sh  会启动 oapService.sh & webappService.sh
 bash startup.sh 
 ```
 修改配置文件地址: apache-skywalking-apm-bin/config/application.yml
@@ -50,6 +52,32 @@ ab -n 100 -c 10  http://127.0.0.1:8081/sayHello?name=123
 
 #### 查看客户端日志
 [How To Print trace ID in your logs In Sky](https://skywalking.apache.org/docs/skywalking-java/v8.8.0/en/setup/service-agent/java-agent/application-toolkit-logback-1.x/)
+
+这里处理 Logback tid，这种思路不错,更新layout,使用默认的，然后增加 ClassicConverter，非常简单方便,LogbackPatternConverter 里面获取是通过sky agent 增强返回的非常骚气，分离了实现和客户端代码,方便更新修复bug，减少依赖
+
+```java
+public class TraceIdPatternLogbackLayout extends PatternLayout {
+    public TraceIdPatternLogbackLayout() {
+    }
+
+    static {
+        defaultConverterMap.put("tid", LogbackPatternConverter.class.getName());
+        defaultConverterMap.put("sw_ctx", LogbackSkyWalkingContextPatternConverter.class.getName());
+    }
+}
+```
+
+```xml
+ <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="org.apache.skywalking.apm.toolkit.log.logback.v1.x.TraceIdPatternLogbackLayout">
+                <Pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%tid] [%thread] %-5level %logger{36} -%msg%n</Pattern>
+            </layout>
+            <charset>utf8</charset>
+        </encoder>
+    </appender>
+```
+
 ```xml
 2022-01-25 19:17:01.735 [TID:de98a5b85f5e476ba249ed66edc06bd0.73.16431094211580001] [DubboServerHandler-30.11.176.38:12345-thread-2] INFO  c.e.test.provider.DemoServiceImpl -[19:17:01] Hello 13446555, request from consumer: /30.11.176.38:62365
 2022-01-25 19:17:07.009 [TID:de98a5b85f5e476ba249ed66edc06bd0.75.16431094270040001] [DubboServerHandler-30.11.176.38:12345-thread-3] INFO  c.e.test.provider.DemoServiceImpl -[19:17:07] Hello 123, request from consumer: /30.11.176.38:62365
