@@ -10,7 +10,9 @@ import javax.annotation.PostConstruct;
 import javax.servlet.http.HttpServletRequest;
 
 import org.apache.dubbo.config.annotation.DubboReference;
+import org.apache.skywalking.apm.toolkit.trace.ActiveSpan;
 import org.apache.skywalking.apm.toolkit.trace.CallableWrapper;
+import org.apache.skywalking.apm.toolkit.trace.Tag;
 import org.apache.skywalking.apm.toolkit.trace.Trace;
 import org.apache.skywalking.apm.toolkit.trace.TraceCrossThread;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,7 +62,7 @@ public class DemoController {
         log.info("get url{}", httpServletRequest.getRequestURI());
 
         final Future<String> submit = executorService.submit(CallableWrapper.of(new Callable<String>() {
-
+            // CallableWrapper 本质是重新构造一个CallableWrapper对象，CallableWrapper类上有@TraceCrossThread 注解
             @Override
             public String call() throws Exception {
                 return demoService.sayHello(name);
@@ -115,6 +117,8 @@ public class DemoController {
 
     @ResponseBody
     @GetMapping("/sayHelloInnerRunnableNewConStruct")
+    @Trace(operationName = "test sayHelloInnerRunnableNewConStruct")
+    @Tag(key = "tag", value = "returnedObj")
     public String sayHelloInnerRunnableNewConStruct(@RequestParam(required = false, defaultValue = "hello name") String name) throws ExecutionException,
                                                                                                                               InterruptedException {
         log.info("get url{}", httpServletRequest.getRequestURI());
@@ -134,11 +138,39 @@ public class DemoController {
         }
 
         @Override
-        @Trace(operationName = "test InnerRunnable")
         public String call() throws Exception {
             return demoService.sayHello("hello");
         }
 
+        /* 官方例子
+        @Tags({
+            @Tag(key = "username", value = "arg[0]"),
+            @Tag(key = "info", value = "returnedObj.0.info"),
+            @Tag(key = "info2", value = "returnedObj.[0].info"),
+        })
+        public User[] testMethodWithReturnArray(String username, Integer age) {
+            return new User[]{new User(username, age)};
+        }
+        */
+
+    }
+
+    /**
+     * 手动标记
+     * @return
+     * @throws Exception
+     */
+    @GetMapping("/task")
+    @ResponseBody
+    public String task() throws Exception {
+        ActiveSpan.tag("type", "sayHello");
+        log.info("come in : /task");
+        // 自定义操作名称。
+        ActiveSpan.setOperationName("测试任务SayHello Task");
+        // 在当前范围内添加信息级别日志消息。
+        ActiveSpan.info("这个是一个日志信息");
+        ActiveSpan.tag("testTag","sayHello");
+       return demoService.sayHello("sayHello");
     }
 
 }

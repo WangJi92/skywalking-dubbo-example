@@ -152,3 +152,111 @@ TID:Ignored_Trace 意味着被拒绝采样了..，日志里面打印的traceId �
 
 * 这里客户端的日志需要配置logback layout [application-toolkit-logback-1.x/](https://skywalking.apache.org/docs/skywalking-java/latest/en/setup/service-agent/java-agent/application-toolkit-logback-1.x/) 即可享受traceId 的秘密
 
+#  skywalking 跨线程处理探究
+
+* 官方文档链接 [trace cross thread link](https://skywalking.apache.org/docs/skywalking-java/latest/en/setup/service-agent/java-agent/application-toolkit-trace-cross-thread/)
+
+### 不进行扩线程处理效果
+```java
+ /**
+   * 没有包装 CallableWrapper.of 不生效，跨线程失败
+   * 
+   * @param name
+   * @return
+   * @throws ExecutionException
+   * @throws InterruptedException
+   */
+  @ResponseBody
+  @GetMapping("/sayHelloNotAcrossThread")
+  public String sayHelloNotAcrossThread(@RequestParam(required = false, defaultValue = "hello name") String name) throws ExecutionException,
+                                                                                                                  InterruptedException {
+      log.info("get url{}", httpServletRequest.getRequestURI());
+
+      final Future<String> submit = executorService.submit(new Callable<String>() {
+
+          @Override
+          public String call() throws Exception {
+              return demoService.sayHello(name);
+          }
+      });
+      return submit.get();
+  }
+```
+效果图如下: 调用追踪不连续了，dubbo 独立追踪了，为两个trace
+
+![not-across-thread](pic/not-across-thread.png)
+
+### TraceCrossThread 处理
+
+```java
+@ResponseBody
+@GetMapping("/sayHelloAcrossThread")
+public String sayHelloAcrossThread(@RequestParam(required = false, defaultValue = "hello name") String name) throws ExecutionException,
+                                                                                                             InterruptedException {
+    log.info("get url{}", httpServletRequest.getRequestURI());
+
+    final Future<String> submit = executorService.submit(CallableWrapper.of(new Callable<String>() {
+        // CallableWrapper 本质是重新构造一个CallableWrapper对象，CallableWrapper类上有@TraceCrossThread 注解
+        @Override
+        public String call() throws Exception {
+            return demoService.sayHello(name);
+        }
+    }));
+    return submit.get();
+}
+
+```
+效果图如下，调用连续了
+
+![across-thread](pic/across-thread.png)
+
+
+### @TraceCrossThread 注解
+
+```java
+@TraceCrossThread
+public class CallableWrapper<V> implements Callable<V> {
+  final Callable<V> callable;
+
+  public static <V> CallableWrapper<V> of(Callable<V> r) {
+    return new CallableWrapper(r);
+  }
+
+  public CallableWrapper(Callable<V> callable) {
+    this.callable = callable;
+  }
+
+  public V call() throws Exception {
+    return this.callable.call();
+  }
+}
+```
+
+* @TraceCrossThread 处理非常的骚气，被标注的class 在构造函数中会进行 trace 信息的复制,注意这里一定是构造函数
+本质是处理 构造函数包装的时候会重新构造一个 CallableWrapper, 官方的 [ootstrap class plugins agent](https://skywalking.apache.org/docs/skywalking-java/latest/en/setup/service-agent/java-agent/bootstrap-plugins/) Plugin of JDK Callable and Runnable. Agent is compatible with JDK 1.8+ 会处理 标注了 @TraceCrossThread 的新的构造进行追踪哦。
+
+* CallableOrRunnableActivation：presents that skywalking intercepts all Class with annotation "org.skywalking.apm.toolkit.trace.TraceCrossThread" and method named "call" or "run". 源码: org.apache.skywalking.apm.toolkit.activation.trace.CallableOrRunnableActivation  org.apache.skywalking.apm.plugin.jdk.threading.define.CallableInstrumentation。 本质还是字节码增强，针对指定的构造函数、方法、且类注解去处理。 [skywalking 异步线程链路源码讲解，这篇文章不错](https://blog.csdn.net/a17816876003/article/details/121444516)
+
+* [跨线程问题解决使用篇](https://blog.csdn.net/kingtok/article/details/113987328)
+手动增加标签
+```xml
+@GetMapping("/task")
+@ResponseBody
+public String task() throws Exception {
+  ActiveSpan.tag("type", "sayHello");
+  log.info("come in : /task");
+  // 自定义操作名称。
+  ActiveSpan.setOperationName("测试任务SayHello Task");
+  // 在当前范围内添加信息级别日志消息。
+  ActiveSpan.info("这个是一个日志信息");
+  ActiveSpan.tag("testTag","sayHello");
+  return demoService.sayHello("sayHello");
+}
+
+```
+手动标记 增加日志、操作等等信息
+![handler-log](pic/hander-log-tag.png)
+
+
+
+
