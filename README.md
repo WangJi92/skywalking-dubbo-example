@@ -233,9 +233,10 @@ public class CallableWrapper<V> implements Callable<V> {
 ```
 
 * @TraceCrossThread 处理非常的骚气，被标注的class 在构造函数中会进行 trace 信息的复制,注意这里一定是构造函数
-本质是处理 构造函数包装的时候会重新构造一个 CallableWrapper, 官方的 [ootstrap class plugins agent](https://skywalking.apache.org/docs/skywalking-java/latest/en/setup/service-agent/java-agent/bootstrap-plugins/) Plugin of JDK Callable and Runnable. Agent is compatible with JDK 1.8+ 会处理 标注了 @TraceCrossThread 的新的构造进行追踪哦。
+本质是处理 构造函数包装的时候会重新构造一个 CallableWrapper, 官方的 [Bootstrap class plugins agent](https://skywalking.apache.org/docs/skywalking-java/latest/en/setup/service-agent/java-agent/bootstrap-plugins/) Plugin of JDK Callable and Runnable. Agent is compatible with JDK 1.8+ 会处理 标注了 @TraceCrossThread 的新的构造进行追踪哦。
 
 * CallableOrRunnableActivation：presents that skywalking intercepts all Class with annotation "org.skywalking.apm.toolkit.trace.TraceCrossThread" and method named "call" or "run". 源码: org.apache.skywalking.apm.toolkit.activation.trace.CallableOrRunnableActivation  org.apache.skywalking.apm.plugin.jdk.threading.define.CallableInstrumentation。 本质还是字节码增强，针对指定的构造函数、方法、且类注解去处理。 [skywalking 异步线程链路源码讲解，这篇文章不错](https://blog.csdn.net/a17816876003/article/details/121444516)
+  更多参考插件开发文档[https://skywalking.apache.org/docs/skywalking-java/latest/en/setup/service-agent/java-agent/java-plugin-development-guide/#abstract](https://skywalking.apache.org/docs/skywalking-java/latest/en/setup/service-agent/java-agent/java-plugin-development-guide/#abstract)
 
 * [跨线程问题解决使用篇](https://blog.csdn.net/kingtok/article/details/113987328)
 手动增加标签
